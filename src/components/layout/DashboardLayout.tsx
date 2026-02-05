@@ -20,6 +20,8 @@ import {
   IconLogout,
   IconChevronDown,
   IconUser,
+  IconBook,
+  IconUsers,
 } from '@tabler/icons-react';
 import { useAuth, authActions } from '../../services/auth/authSlice';
 import { useLogoutMutation } from '../../services/auth/authApi';
@@ -29,6 +31,8 @@ const navItems = [
   { icon: IconHome, label: 'Dashboard', path: '/dashboard' },
   { icon: IconFileText, label: 'Aufgaben', path: '/questions' },
   { icon: IconClipboardList, label: 'Prüfungen', path: '/exams' },
+  { icon: IconUsers, label: 'Gruppen', path: '/groups' },
+  { icon: IconBook, label: 'Fächer', path: '/subjects' },
 ];
 
 export const DashboardLayout = () => {

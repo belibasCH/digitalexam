@@ -14,6 +14,9 @@ import { ExamEditorPage } from './pages/exams/ExamEditorPage';
 import { ExamDetailPage } from './pages/exams/ExamDetailPage';
 import { ExamMonitorPage } from './pages/exams/ExamMonitorPage';
 import { EvaluatePage } from './pages/evaluate/EvaluatePage';
+import { SubjectsPage } from './pages/subjects/SubjectsPage';
+import { GroupsListPage } from './pages/groups/GroupsListPage';
+import { GroupDetailPage } from './pages/groups/GroupDetailPage';
 import { JoinExamPage } from './pages/take/JoinExamPage';
 import { TakeExamPage } from './pages/take/TakeExamPage';
 import { ExamCompletePage } from './pages/take/ExamCompletePage';
@@ -78,6 +81,7 @@ const App = () => {
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
 
+
           {/* Questions */}
           <Route path="/questions" element={<QuestionsListPage />} />
           <Route path="/questions/new" element={<QuestionEditorPage />} />
@@ -90,6 +94,14 @@ const App = () => {
           <Route path="/exams/:id/edit" element={<ExamEditorPage />} />
           <Route path="/exams/:id/monitor" element={<ExamMonitorPage />} />
           <Route path="/exams/:id/evaluate" element={<EvaluatePage />} />
+
+
+          {/* Subjects */}
+          <Route path="/subjects" element={<SubjectsPage />} />
+
+          {/* Groups */}
+          <Route path="/groups" element={<GroupsListPage />} />
+          <Route path="/groups/:id" element={<GroupDetailPage />} />
         </Route>
       </Route>
 

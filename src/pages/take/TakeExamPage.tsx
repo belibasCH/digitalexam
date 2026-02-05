@@ -19,6 +19,10 @@ import {
   ActionIcon,
   Loader,
   Divider,
+  Checkbox,
+  TextInput,
+  Select,
+  SimpleGrid,
 } from '@mantine/core';
 import { IconAlertCircle, IconClock, IconCheck, IconUpload, IconFile, IconTrash, IconX } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -34,9 +38,17 @@ import {
   MultipleChoiceContent,
   FreeTextContent,
   FileUploadContent,
+  KPrimContent,
+  ClozeContent,
+  MatchingContent,
+  EssayContent,
   MultipleChoiceAnswer,
   FreeTextAnswer,
   FileUploadAnswer,
+  KPrimAnswer,
+  ClozeAnswer,
+  MatchingAnswer,
+  EssayAnswer,
   UploadedFile,
   ExamSectionWithQuestions,
 } from '../../types/database';
@@ -220,6 +232,38 @@ export const TakeExamPage = () => {
             question={question}
             answer={answers[question.id] as FileUploadAnswer | undefined}
             sessionId={sessionId || ''}
+            onChange={(content) => handleAnswerChange(question.id, content)}
+          />
+        );
+      case 'kprim':
+        return (
+          <KPrimQuestion
+            question={question}
+            answer={answers[question.id] as KPrimAnswer | undefined}
+            onChange={(content) => handleAnswerChange(question.id, content)}
+          />
+        );
+      case 'cloze':
+        return (
+          <ClozeQuestion
+            question={question}
+            answer={answers[question.id] as ClozeAnswer | undefined}
+            onChange={(content) => handleAnswerChange(question.id, content)}
+          />
+        );
+      case 'matching':
+        return (
+          <MatchingQuestion
+            question={question}
+            answer={answers[question.id] as MatchingAnswer | undefined}
+            onChange={(content) => handleAnswerChange(question.id, content)}
+          />
+        );
+      case 'essay':
+        return (
+          <EssayQuestion
+            question={question}
+            answer={answers[question.id] as EssayAnswer | undefined}
             onChange={(content) => handleAnswerChange(question.id, content)}
           />
         );
@@ -606,6 +650,258 @@ const FileUploadQuestion = ({
           ))}
         </Stack>
       )}
+    </Stack>
+  );
+};
+
+// K-Prim: 4 statements, each can be true or false
+const KPrimQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: KPrimAnswer | undefined;
+  onChange: (content: KPrimAnswer) => void;
+}) => {
+  const content = question.content as KPrimContent;
+
+  const getAnswerForStatement = (statementId: string): boolean | undefined => {
+    return answer?.answers.find((a) => a.statement_id === statementId)?.selected;
+  };
+
+  const handleStatementChange = (statementId: string, selected: boolean) => {
+    const currentAnswers = answer?.answers || [];
+    const existingIndex = currentAnswers.findIndex((a) => a.statement_id === statementId);
+
+    let newAnswers;
+    if (existingIndex >= 0) {
+      newAnswers = [...currentAnswers];
+      newAnswers[existingIndex] = { statement_id: statementId, selected };
+    } else {
+      newAnswers = [...currentAnswers, { statement_id: statementId, selected }];
+    }
+
+    onChange({ answers: newAnswers });
+  };
+
+  return (
+    <Stack gap="md">
+      <Text size="sm" c="dimmed">
+        Bewerten Sie jede Aussage als richtig oder falsch:
+      </Text>
+      {content.statements.map((statement, index) => {
+        const currentValue = getAnswerForStatement(statement.id);
+        return (
+          <Paper key={statement.id} p="md" withBorder>
+            <Group justify="space-between" wrap="nowrap">
+              <Text style={{ flex: 1 }}>
+                {index + 1}. {statement.text}
+              </Text>
+              <Group gap="md">
+                <Checkbox
+                  label="Richtig"
+                  checked={currentValue === true}
+                  onChange={() => handleStatementChange(statement.id, true)}
+                  styles={{ label: { cursor: 'pointer' } }}
+                />
+                <Checkbox
+                  label="Falsch"
+                  checked={currentValue === false}
+                  onChange={() => handleStatementChange(statement.id, false)}
+                  styles={{ label: { cursor: 'pointer' } }}
+                />
+              </Group>
+            </Group>
+          </Paper>
+        );
+      })}
+    </Stack>
+  );
+};
+
+// Cloze/Fill-in-the-blanks
+const ClozeQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: ClozeAnswer | undefined;
+  onChange: (content: ClozeAnswer) => void;
+}) => {
+  const content = question.content as ClozeContent;
+
+  const getAnswerForBlank = (blankId: string): string => {
+    return answer?.answers.find((a) => a.blank_id === blankId)?.text || '';
+  };
+
+  const handleBlankChange = (blankId: string, text: string) => {
+    const currentAnswers = answer?.answers || [];
+    const existingIndex = currentAnswers.findIndex((a) => a.blank_id === blankId);
+
+    let newAnswers;
+    if (existingIndex >= 0) {
+      newAnswers = [...currentAnswers];
+      newAnswers[existingIndex] = { blank_id: blankId, text };
+    } else {
+      newAnswers = [...currentAnswers, { blank_id: blankId, text }];
+    }
+
+    onChange({ answers: newAnswers });
+  };
+
+  // Parse text and render with input fields for blanks
+  const renderTextWithBlanks = () => {
+    const parts = content.text.split(/(\{\{[^}]+\}\})/g);
+
+    return parts.map((part, index) => {
+      const match = part.match(/\{\{([^}]+)\}\}/);
+      if (match) {
+        const blankId = match[1];
+        const blank = content.blanks.find((b) => b.id === blankId);
+        if (!blank) return null;
+
+        return (
+          <TextInput
+            key={index}
+            placeholder={`Lücke ${content.blanks.indexOf(blank) + 1}`}
+            value={getAnswerForBlank(blankId)}
+            onChange={(e) => handleBlankChange(blankId, e.target.value)}
+            style={{ display: 'inline-block', width: '150px', margin: '0 4px' }}
+            size="sm"
+          />
+        );
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
+
+  return (
+    <Stack gap="md">
+      <Text size="sm" c="dimmed">
+        Füllen Sie die Lücken aus:
+      </Text>
+      <Paper p="md" bg="gray.0" radius="md" style={{ lineHeight: 2.5 }}>
+        {renderTextWithBlanks()}
+      </Paper>
+    </Stack>
+  );
+};
+
+// Matching/Zuordnung
+const MatchingQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: MatchingAnswer | undefined;
+  onChange: (content: MatchingAnswer) => void;
+}) => {
+  const content = question.content as MatchingContent;
+
+  const getMatchForLeft = (leftId: string): string => {
+    return answer?.matches.find((m) => m.left_id === leftId)?.right_id || '';
+  };
+
+  const handleMatchChange = (leftId: string, rightId: string) => {
+    const currentMatches = answer?.matches || [];
+    const existingIndex = currentMatches.findIndex((m) => m.left_id === leftId);
+
+    let newMatches;
+    if (existingIndex >= 0) {
+      newMatches = [...currentMatches];
+      if (rightId) {
+        newMatches[existingIndex] = { left_id: leftId, right_id: rightId };
+      } else {
+        newMatches.splice(existingIndex, 1);
+      }
+    } else if (rightId) {
+      newMatches = [...currentMatches, { left_id: leftId, right_id: rightId }];
+    } else {
+      newMatches = currentMatches;
+    }
+
+    onChange({ matches: newMatches });
+  };
+
+  // Create options for the select dropdown (shuffled right side)
+  const rightOptions = content.pairs.map((pair) => ({
+    value: pair.id,
+    label: pair.right,
+  }));
+
+  return (
+    <Stack gap="md">
+      <Text size="sm" c="dimmed">
+        Ordnen Sie die Begriffe einander zu:
+      </Text>
+      <SimpleGrid cols={1}>
+        {content.pairs.map((pair, index) => (
+          <Paper key={pair.id} p="md" withBorder>
+            <Group justify="space-between" wrap="nowrap" gap="md">
+              <Text fw={500} style={{ flex: 1 }}>
+                {index + 1}. {pair.left}
+              </Text>
+              <Select
+                placeholder="Wählen Sie..."
+                data={rightOptions}
+                value={getMatchForLeft(pair.id)}
+                onChange={(value) => handleMatchChange(pair.id, value || '')}
+                clearable
+                style={{ minWidth: 200 }}
+              />
+            </Group>
+          </Paper>
+        ))}
+      </SimpleGrid>
+    </Stack>
+  );
+};
+
+// Essay/Aufsatz (longer form writing)
+const EssayQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: EssayAnswer | undefined;
+  onChange: (content: EssayAnswer) => void;
+}) => {
+  const content = question.content as EssayContent;
+  const text = answer?.text || '';
+
+  // Count words
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+
+  return (
+    <Stack gap="md">
+      {(content.min_words || content.max_words) && (
+        <Group gap="md">
+          {content.min_words && (
+            <Badge variant="outline" color={wordCount >= content.min_words ? 'green' : 'orange'}>
+              Min: {content.min_words} Wörter
+            </Badge>
+          )}
+          {content.max_words && (
+            <Badge variant="outline" color={wordCount <= content.max_words ? 'green' : 'red'}>
+              Max: {content.max_words} Wörter
+            </Badge>
+          )}
+          <Badge variant="light">
+            Aktuell: {wordCount} Wörter
+          </Badge>
+        </Group>
+      )}
+      <Textarea
+        placeholder="Schreiben Sie hier Ihren Aufsatz..."
+        minRows={12}
+        value={text}
+        onChange={(e) => onChange({ text: e.target.value })}
+        autosize
+      />
     </Stack>
   );
 };

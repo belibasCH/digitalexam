@@ -103,8 +103,15 @@ export const JoinExamPage = () => {
 
           <Group justify="center" gap="md">
             <Badge size="lg" variant="light">
-              {exam.questions.length} Aufgaben
+              {(exam.sections && exam.sections.length > 0
+                ? exam.sections.flatMap(s => s.questions).length
+                : exam.questions.length)} Aufgaben
             </Badge>
+            {exam.sections && exam.sections.length > 0 && (
+              <Badge size="lg" variant="light">
+                {exam.sections.length} Sektionen
+              </Badge>
+            )}
             {exam.time_limit_minutes && (
               <Badge size="lg" variant="light" leftSection={<IconClock size={14} />}>
                 {exam.time_limit_minutes} Minuten

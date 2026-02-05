@@ -103,7 +103,13 @@ export const ExamDetailPage = () => {
     );
   }
 
-  const totalPoints = exam.questions.reduce((sum, q) => sum + q.points, 0);
+  const sections = exam.sections || [];
+  const hasSections = sections.length > 0;
+  const allQuestions = hasSections
+    ? sections.flatMap(s => s.questions)
+    : exam.questions;
+  const totalPoints = allQuestions.reduce((sum, q) => sum + q.points, 0);
+  const totalSections = sections.length;
 
   return (
     <Container size="lg">
@@ -200,11 +206,19 @@ export const ExamDetailPage = () => {
           </Group>
 
           <Group gap="xl">
+            {hasSections && (
+              <div>
+                <Text size="sm" c="dimmed">
+                  Sektionen
+                </Text>
+                <Text fw={500}>{totalSections}</Text>
+              </div>
+            )}
             <div>
               <Text size="sm" c="dimmed">
                 Aufgaben
               </Text>
-              <Text fw={500}>{exam.questions.length}</Text>
+              <Text fw={500}>{allQuestions.length}</Text>
             </div>
             <div>
               <Text size="sm" c="dimmed">
@@ -267,12 +281,53 @@ export const ExamDetailPage = () => {
 
         <Paper p="lg" radius="md" withBorder>
           <Title order={4} mb="md">
-            Aufgaben ({exam.questions.length})
+            {hasSections ? `Sektionen (${totalSections})` : `Aufgaben (${allQuestions.length})`}
           </Title>
-          {exam.questions.length === 0 ? (
+          {allQuestions.length === 0 ? (
             <Text c="dimmed" size="sm">
               Keine Aufgaben zugewiesen.
             </Text>
+          ) : hasSections ? (
+            <Stack gap="md">
+              {sections.map((section, sectionIndex) => (
+                <Paper key={section.id} p="md" withBorder bg="gray.0">
+                  <Group justify="space-between" mb="sm">
+                    <div>
+                      <Group gap="sm">
+                        <Badge>Sektion {sectionIndex + 1}</Badge>
+                        <Text fw={600}>{section.title}</Text>
+                      </Group>
+                      {section.description && (
+                        <Text size="sm" c="dimmed" mt="xs">{section.description}</Text>
+                      )}
+                    </div>
+                    <Badge color="blue">
+                      {section.questions.reduce((sum, q) => sum + q.points, 0)} Punkte
+                    </Badge>
+                  </Group>
+                  <Stack gap="xs">
+                    {section.questions.map((question, index) => (
+                      <Paper key={question.id} p="sm" bg="white" withBorder>
+                        <Group justify="space-between">
+                          <Group gap="sm">
+                            <Text size="sm" fw={500}>
+                              {index + 1}. {question.title}
+                            </Text>
+                            <Badge size="xs">
+                              {question.type === 'multiple_choice' ? 'MC' :
+                               question.type === 'free_text' ? 'Text' : 'Datei'}
+                            </Badge>
+                          </Group>
+                          <Badge variant="outline" size="sm">
+                            {question.points} {question.points === 1 ? 'Punkt' : 'Punkte'}
+                          </Badge>
+                        </Group>
+                      </Paper>
+                    ))}
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
           ) : (
             <Stack gap="sm">
               {exam.questions.map((question, index) => (
@@ -283,7 +338,8 @@ export const ExamDetailPage = () => {
                         {index + 1}. {question.title}
                       </Text>
                       <Badge size="xs">
-                        {question.type === 'multiple_choice' ? 'Multiple Choice' : 'Freitext'}
+                        {question.type === 'multiple_choice' ? 'MC' :
+                         question.type === 'free_text' ? 'Text' : 'Datei'}
                       </Badge>
                     </Group>
                     <Badge variant="outline" size="sm">
