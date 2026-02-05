@@ -5,6 +5,11 @@ on:
     branches:
       - main # Setzt den Branch, auf den gelauscht werden soll
 
+permissions:
+  contents: write # Erforderlich, um den Build-Output zu pushen
+  pages: write # Erforderlich, um auf GitHub Pages zu deployen
+  id-token: write # Erforderlich für die Authentifizierung bei GitHub Pages
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest # Führt den Job auf einer Ubuntu-VM aus
