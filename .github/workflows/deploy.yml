@@ -13,6 +13,9 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest # Führt den Job auf einer Ubuntu-VM aus
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
     steps:
       - name: Checkout Repository
