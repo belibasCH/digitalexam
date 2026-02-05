@@ -33,6 +33,7 @@ import {
   FreeTextAnswer,
   FileUploadAnswer,
   UploadedFile,
+  ExamSectionWithQuestions,
 } from '../../types/database';
 import { supabase } from '../../services/common/supabase';
 

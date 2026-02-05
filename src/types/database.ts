@@ -48,9 +48,19 @@ export interface Exam {
   created_at: string;
 }
 
+export interface ExamSection {
+  id: string;
+  exam_id: string;
+  title: string;
+  description?: string;
+  order_index: number;
+  created_at: string;
+}
+
 export interface ExamQuestion {
   exam_id: string;
   question_id: string;
+  section_id?: string;
   order_index: number;
 }
 
@@ -94,10 +104,16 @@ export interface UploadedFile {
 
 export interface ExamWithQuestions extends Exam {
   questions: QuestionWithOrder[];
+  sections?: ExamSectionWithQuestions[];
 }
 
 export interface QuestionWithOrder extends Question {
   order_index: number;
+  section_id?: string;
+}
+
+export interface ExamSectionWithQuestions extends ExamSection {
+  questions: QuestionWithOrder[];
 }
 
 export interface ExamSessionWithAnswers extends ExamSession {

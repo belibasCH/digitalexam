@@ -1,6 +1,6 @@
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
 import { supabase } from '../common/supabase';
-import { Answer, ExamSession, ExamSessionWithAnswers, ExamWithQuestions } from '../../types/database';
+import { Answer, ExamSession, ExamSessionWithAnswers, ExamWithQuestions, ExamSectionWithQuestions, Question } from '../../types/database';
 
 interface JoinExamRequest {
   exam_id: string;
@@ -37,9 +37,20 @@ export const sessionsApi = createApi({
           return { error: { status: 404, data: { message: 'Prüfung nicht gefunden oder nicht aktiv' } } };
         }
 
+        // Fetch sections
+        const { data: sections, error: sectionsError } = await supabase
+          .from('exam_sections')
+          .select('*')
+          .eq('exam_id', examId)
+          .order('order_index');
+
+        if (sectionsError) {
+          return { error: { status: 500, data: { message: sectionsError.message } } };
+        }
+
         const { data: examQuestions, error: eqError } = await supabase
           .from('exam_questions')
-          .select('question_id, order_index')
+          .select('question_id, order_index, section_id')
           .eq('exam_id', examId)
           .order('order_index');
 
@@ -48,7 +59,11 @@ export const sessionsApi = createApi({
         }
 
         if (!examQuestions || examQuestions.length === 0) {
-          return { data: { ...exam, questions: [] } };
+          const sectionsWithQuestions: ExamSectionWithQuestions[] = (sections || []).map(s => ({
+            ...s,
+            questions: [],
+          }));
+          return { data: { ...exam, questions: [], sections: sectionsWithQuestions } };
         }
 
         const questionIds = examQuestions.map(eq => eq.question_id);
@@ -66,10 +81,28 @@ export const sessionsApi = createApi({
           return {
             ...question,
             order_index: eq.order_index,
+            section_id: eq.section_id,
           };
-        }).filter(q => q && q.id);
+        }).filter(q => q && q.id) as (Question & { order_index: number; section_id?: string })[];
 
-        return { data: { ...exam, questions: questionsWithOrder as ExamWithQuestions['questions'] } };
+        // Group questions by section
+        const sectionsWithQuestions: ExamSectionWithQuestions[] = (sections || []).map(section => ({
+          ...section,
+          questions: questionsWithOrder
+            .filter(q => q.section_id === section.id)
+            .sort((a, b) => a.order_index - b.order_index),
+        }));
+
+        // Questions without a section (for backward compatibility)
+        const unsectionedQuestions = questionsWithOrder.filter(q => !q.section_id);
+
+        return {
+          data: {
+            ...exam,
+            questions: unsectionedQuestions,
+            sections: sectionsWithQuestions,
+          }
+        };
       },
     }),
 

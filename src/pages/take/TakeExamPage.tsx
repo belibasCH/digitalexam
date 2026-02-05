@@ -18,6 +18,7 @@ import {
   FileButton,
   ActionIcon,
   Loader,
+  Divider,
 } from '@mantine/core';
 import { IconAlertCircle, IconClock, IconCheck, IconUpload, IconFile, IconTrash, IconX } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -37,6 +38,7 @@ import {
   FreeTextAnswer,
   FileUploadAnswer,
   UploadedFile,
+  ExamSectionWithQuestions,
 } from '../../types/database';
 import { supabase } from '../../services/common/supabase';
 
@@ -46,7 +48,7 @@ export const TakeExamPage = () => {
   const navigate = useNavigate();
   const sessionId = searchParams.get('session');
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
@@ -65,6 +67,19 @@ export const TakeExamPage = () => {
 
   const [saveAnswer] = useSaveAnswerMutation();
   const [submitExam, { isLoading: submitting }] = useSubmitExamMutation();
+
+  // Determine if exam uses sections
+  const hasSections = exam?.sections && exam.sections.length > 0;
+  const sections = hasSections ? exam.sections : null;
+
+  // Flatten all questions for progress tracking
+  const allQuestions = hasSections
+    ? sections!.flatMap((s) => s.questions)
+    : exam?.questions || [];
+
+  // Get current section's questions
+  const currentSection = sections ? sections[currentSectionIndex] : null;
+  const currentSectionQuestions = currentSection?.questions || allQuestions;
 
   // Load existing answers
   useEffect(() => {
@@ -163,9 +178,9 @@ export const TakeExamPage = () => {
     return null;
   }
 
-  const currentQuestion = exam.questions[currentIndex];
   const answeredCount = Object.keys(answers).length;
-  const progress = (answeredCount / exam.questions.length) * 100;
+  const totalQuestions = allQuestions.length;
+  const progress = (answeredCount / totalQuestions) * 100;
 
   const formatTime = (ms: number) => {
     const minutes = Math.floor(ms / 60000);
@@ -173,31 +188,39 @@ export const TakeExamPage = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const renderQuestion = () => {
-    switch (currentQuestion.type) {
+  const getSectionTotalPoints = (section: ExamSectionWithQuestions): number => {
+    return section.questions.reduce((sum, q) => sum + q.points, 0);
+  };
+
+  const getSectionAnsweredCount = (section: ExamSectionWithQuestions): number => {
+    return section.questions.filter((q) => answers[q.id] !== undefined).length;
+  };
+
+  const renderQuestion = (question: Question) => {
+    switch (question.type) {
       case 'multiple_choice':
         return (
           <MultipleChoiceQuestion
-            question={currentQuestion}
-            answer={answers[currentQuestion.id] as MultipleChoiceAnswer | undefined}
-            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+            question={question}
+            answer={answers[question.id] as MultipleChoiceAnswer | undefined}
+            onChange={(content) => handleAnswerChange(question.id, content)}
           />
         );
       case 'free_text':
         return (
           <FreeTextQuestion
-            question={currentQuestion}
-            answer={answers[currentQuestion.id] as FreeTextAnswer | undefined}
-            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+            question={question}
+            answer={answers[question.id] as FreeTextAnswer | undefined}
+            onChange={(content) => handleAnswerChange(question.id, content)}
           />
         );
       case 'file_upload':
         return (
           <FileUploadQuestion
-            question={currentQuestion}
-            answer={answers[currentQuestion.id] as FileUploadAnswer | undefined}
+            question={question}
+            answer={answers[question.id] as FileUploadAnswer | undefined}
             sessionId={sessionId || ''}
-            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+            onChange={(content) => handleAnswerChange(question.id, content)}
           />
         );
       default:
@@ -227,57 +250,108 @@ export const TakeExamPage = () => {
                 </Badge>
               )}
               <Badge size="lg" variant="outline">
-                {answeredCount} / {exam.questions.length}
+                {answeredCount} / {totalQuestions}
               </Badge>
             </Group>
           </Group>
           <Progress value={progress} size="sm" mt="md" />
         </Paper>
 
-        <Paper p="lg" radius="md" withBorder>
-          <Group justify="space-between" mb="md">
-            <Badge>Frage {currentIndex + 1} von {exam.questions.length}</Badge>
-            <Badge variant="outline">{currentQuestion.points} Punkte</Badge>
-          </Group>
+        {/* Section Navigation (if using sections) */}
+        {hasSections && sections && (
+          <Paper p="md" radius="md" withBorder>
+            <Text size="sm" fw={500} mb="sm">
+              Sektionen
+            </Text>
+            <Group gap="xs">
+              {sections.map((section, index) => {
+                const sectionAnswered = getSectionAnsweredCount(section);
+                const sectionTotal = section.questions.length;
+                const isComplete = sectionAnswered === sectionTotal;
+                return (
+                  <Button
+                    key={section.id}
+                    size="sm"
+                    variant={index === currentSectionIndex ? 'filled' : isComplete ? 'light' : 'subtle'}
+                    color={isComplete ? 'green' : undefined}
+                    onClick={() => setCurrentSectionIndex(index)}
+                  >
+                    {section.title} ({sectionAnswered}/{sectionTotal})
+                  </Button>
+                );
+              })}
+            </Group>
+          </Paper>
+        )}
 
-          <Title order={4} mb="md">
-            {currentQuestion.title}
-          </Title>
+        {/* Current Section Header */}
+        {currentSection && (
+          <Paper p="lg" radius="md" withBorder bg="blue.0">
+            <Group justify="space-between">
+              <div>
+                <Badge mb="xs">Sektion {currentSectionIndex + 1} von {sections!.length}</Badge>
+                <Title order={4}>{currentSection.title}</Title>
+                {currentSection.description && (
+                  <Text size="sm" c="dimmed" mt="xs">
+                    {currentSection.description}
+                  </Text>
+                )}
+              </div>
+              <Badge size="lg" variant="light" color="blue">
+                {getSectionTotalPoints(currentSection)} Punkte
+              </Badge>
+            </Group>
+          </Paper>
+        )}
 
-          <Text mb="lg">
-            {(currentQuestion.content as { question: string }).question}
-          </Text>
+        {/* Questions in current section */}
+        <Stack gap="md">
+          {currentSectionQuestions.map((question, index) => (
+            <Paper key={question.id} p="lg" radius="md" withBorder>
+              <Group justify="space-between" mb="md">
+                <Badge>Frage {index + 1} von {currentSectionQuestions.length}</Badge>
+                <Badge variant="outline">{question.points} Punkte</Badge>
+              </Group>
 
-          {renderQuestion()}
-        </Paper>
+              <Title order={4} mb="md">
+                {question.title}
+              </Title>
 
+              <Text mb="lg">
+                {(question.content as { question: string }).question}
+              </Text>
+
+              {renderQuestion(question)}
+
+              {index < currentSectionQuestions.length - 1 && <Divider mt="lg" />}
+            </Paper>
+          ))}
+        </Stack>
+
+        {/* Navigation */}
         <Group justify="space-between">
-          <Button
-            variant="light"
-            onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
-            disabled={currentIndex === 0}
-          >
-            Zurück
-          </Button>
-
-          <Group gap="sm">
-            {exam.questions.map((_, index) => (
+          {hasSections && sections ? (
+            <>
               <Button
-                key={index}
-                size="xs"
-                variant={index === currentIndex ? 'filled' : answers[exam.questions[index].id] ? 'light' : 'subtle'}
-                onClick={() => setCurrentIndex(index)}
+                variant="light"
+                onClick={() => setCurrentSectionIndex((i) => Math.max(0, i - 1))}
+                disabled={currentSectionIndex === 0}
               >
-                {index + 1}
+                Vorherige Sektion
               </Button>
-            ))}
-          </Group>
-
-          {currentIndex < exam.questions.length - 1 ? (
-            <Button onClick={() => setCurrentIndex((i) => i + 1)}>Weiter</Button>
+              {currentSectionIndex < sections.length - 1 ? (
+                <Button onClick={() => setCurrentSectionIndex((i) => i + 1)}>
+                  Nächste Sektion
+                </Button>
+              ) : (
+                <Button color="green" onClick={() => setShowSubmitModal(true)}>
+                  Prüfung abgeben
+                </Button>
+              )}
+            </>
           ) : (
-            <Button color="green" onClick={() => setShowSubmitModal(true)}>
-              Abgeben
+            <Button color="green" onClick={() => setShowSubmitModal(true)} style={{ marginLeft: 'auto' }}>
+              Prüfung abgeben
             </Button>
           )}
         </Group>
@@ -293,9 +367,9 @@ export const TakeExamPage = () => {
               danach nicht mehr ändern.
             </Text>
             <Text size="sm" c="dimmed">
-              Sie haben {answeredCount} von {exam.questions.length} Fragen beantwortet.
+              Sie haben {answeredCount} von {totalQuestions} Fragen beantwortet.
             </Text>
-            {answeredCount < exam.questions.length && (
+            {answeredCount < totalQuestions && (
               <Alert icon={<IconAlertCircle size={16} />} color="orange">
                 Sie haben noch nicht alle Fragen beantwortet!
               </Alert>

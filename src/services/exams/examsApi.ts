@@ -1,6 +1,6 @@
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
 import { supabase } from '../common/supabase';
-import { Exam, ExamQuestion, ExamWithQuestions, Question } from '../../types/database';
+import { Exam, ExamQuestion, ExamWithQuestions, ExamSection, ExamSectionWithQuestions, Question } from '../../types/database';
 
 interface CreateExamRequest {
   teacher_id: string;
@@ -19,10 +19,39 @@ interface AssignQuestionsRequest {
   question_ids: string[];
 }
 
+interface CreateSectionRequest {
+  exam_id: string;
+  title: string;
+  description?: string;
+  order_index: number;
+}
+
+interface UpdateSectionRequest {
+  id: string;
+  data: Partial<ExamSection>;
+}
+
+interface AssignQuestionsToSectionRequest {
+  exam_id: string;
+  section_id: string;
+  question_ids: string[];
+}
+
+interface SaveSectionsWithQuestionsRequest {
+  exam_id: string;
+  sections: {
+    id?: string;
+    title: string;
+    description?: string;
+    order_index: number;
+    question_ids: string[];
+  }[];
+}
+
 export const examsApi = createApi({
   reducerPath: 'examsApi',
   baseQuery: fakeBaseQuery(),
-  tagTypes: ['Exams', 'ExamQuestions'],
+  tagTypes: ['Exams', 'ExamQuestions', 'ExamSections'],
   endpoints: (build) => ({
     getExams: build.query<Exam[], string>({
       queryFn: async (teacherId) => {
@@ -74,9 +103,20 @@ export const examsApi = createApi({
           return { error: { status: 500, data: { message: examError.message } } };
         }
 
+        // Fetch sections
+        const { data: sections, error: sectionsError } = await supabase
+          .from('exam_sections')
+          .select('*')
+          .eq('exam_id', id)
+          .order('order_index');
+
+        if (sectionsError) {
+          return { error: { status: 500, data: { message: sectionsError.message } } };
+        }
+
         const { data: examQuestions, error: eqError } = await supabase
           .from('exam_questions')
-          .select('question_id, order_index')
+          .select('question_id, order_index, section_id')
           .eq('exam_id', id)
           .order('order_index');
 
@@ -85,7 +125,11 @@ export const examsApi = createApi({
         }
 
         if (!examQuestions || examQuestions.length === 0) {
-          return { data: { ...exam, questions: [] } };
+          const sectionsWithQuestions: ExamSectionWithQuestions[] = (sections || []).map(s => ({
+            ...s,
+            questions: [],
+          }));
+          return { data: { ...exam, questions: [], sections: sectionsWithQuestions } };
         }
 
         const questionIds = examQuestions.map(eq => eq.question_id);
@@ -103,14 +147,33 @@ export const examsApi = createApi({
           return {
             ...question,
             order_index: eq.order_index,
+            section_id: eq.section_id,
           };
-        }).filter(q => q.id) as (Question & { order_index: number })[];
+        }).filter(q => q.id) as (Question & { order_index: number; section_id?: string })[];
 
-        return { data: { ...exam, questions: questionsWithOrder } };
+        // Group questions by section
+        const sectionsWithQuestions: ExamSectionWithQuestions[] = (sections || []).map(section => ({
+          ...section,
+          questions: questionsWithOrder
+            .filter(q => q.section_id === section.id)
+            .sort((a, b) => a.order_index - b.order_index),
+        }));
+
+        // Questions without a section (for backward compatibility)
+        const unsectionedQuestions = questionsWithOrder.filter(q => !q.section_id);
+
+        return {
+          data: {
+            ...exam,
+            questions: unsectionedQuestions,
+            sections: sectionsWithQuestions,
+          }
+        };
       },
       providesTags: (_, __, id) => [
         { type: 'Exams', id },
         { type: 'ExamQuestions', id },
+        { type: 'ExamSections', id },
       ],
     }),
 
@@ -240,6 +303,132 @@ export const examsApi = createApi({
         { type: 'Exams', id: 'LIST' },
       ],
     }),
+
+    // Section endpoints
+    createSection: build.mutation<ExamSection, CreateSectionRequest>({
+      queryFn: async (section) => {
+        const { data, error } = await supabase
+          .from('exam_sections')
+          .insert(section)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: (_, __, { exam_id }) => [
+        { type: 'ExamSections', id: exam_id },
+        { type: 'Exams', id: exam_id },
+      ],
+    }),
+
+    updateSection: build.mutation<ExamSection, UpdateSectionRequest>({
+      queryFn: async ({ id, data }) => {
+        const { data: updated, error } = await supabase
+          .from('exam_sections')
+          .update(data)
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data: updated };
+      },
+      invalidatesTags: (result) => result ? [
+        { type: 'ExamSections', id: result.exam_id },
+        { type: 'Exams', id: result.exam_id },
+      ] : [],
+    }),
+
+    deleteSection: build.mutation<void, { id: string; exam_id: string }>({
+      queryFn: async ({ id }) => {
+        const { error } = await supabase
+          .from('exam_sections')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data: undefined };
+      },
+      invalidatesTags: (_, __, { exam_id }) => [
+        { type: 'ExamSections', id: exam_id },
+        { type: 'Exams', id: exam_id },
+        { type: 'ExamQuestions', id: exam_id },
+      ],
+    }),
+
+    saveSectionsWithQuestions: build.mutation<void, SaveSectionsWithQuestionsRequest>({
+      queryFn: async ({ exam_id, sections }) => {
+        // Delete existing sections (cascade will delete exam_questions with section_id)
+        const { error: deleteError } = await supabase
+          .from('exam_sections')
+          .delete()
+          .eq('exam_id', exam_id);
+
+        if (deleteError) {
+          return { error: { status: 500, data: { message: deleteError.message } } };
+        }
+
+        // Delete all exam_questions for this exam
+        const { error: deleteQError } = await supabase
+          .from('exam_questions')
+          .delete()
+          .eq('exam_id', exam_id);
+
+        if (deleteQError) {
+          return { error: { status: 500, data: { message: deleteQError.message } } };
+        }
+
+        // Create sections and their questions
+        for (const section of sections) {
+          const { data: newSection, error: sectionError } = await supabase
+            .from('exam_sections')
+            .insert({
+              exam_id,
+              title: section.title,
+              description: section.description,
+              order_index: section.order_index,
+            })
+            .select()
+            .single();
+
+          if (sectionError) {
+            return { error: { status: 500, data: { message: sectionError.message } } };
+          }
+
+          // Insert questions for this section
+          if (section.question_ids.length > 0) {
+            const examQuestions: ExamQuestion[] = section.question_ids.map((question_id, index) => ({
+              exam_id,
+              question_id,
+              section_id: newSection.id,
+              order_index: index,
+            }));
+
+            const { error: insertError } = await supabase
+              .from('exam_questions')
+              .insert(examQuestions);
+
+            if (insertError) {
+              return { error: { status: 500, data: { message: insertError.message } } };
+            }
+          }
+        }
+
+        return { data: undefined };
+      },
+      invalidatesTags: (_, __, { exam_id }) => [
+        { type: 'ExamSections', id: exam_id },
+        { type: 'ExamQuestions', id: exam_id },
+        { type: 'Exams', id: exam_id },
+      ],
+    }),
   }),
 });
 
@@ -253,4 +442,8 @@ export const {
   useAssignQuestionsMutation,
   useActivateExamMutation,
   useCloseExamMutation,
+  useCreateSectionMutation,
+  useUpdateSectionMutation,
+  useDeleteSectionMutation,
+  useSaveSectionsWithQuestionsMutation,
 } = examsApi;

@@ -1,0 +1,34 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main # Setzt den Branch, auf den gelauscht werden soll
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest # Führt den Job auf einer Ubuntu-VM aus
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4 # Holt den Code aus deinem Repository
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Verwendet Node.js Version 20 (oder eine andere, die du benötigst)
+          cache: 'npm' # Aktiviert das Caching für npm-Abhängigkeiten
+
+      - name: Install Dependencies
+        run: npm install # Installiert die Projektabhängigkeiten
+
+      - name: Build Project
+        run: npm run build # Führt den Build-Befehl aus (erstellt normalerweise den 'dist'-Ordner)
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }} # Benötigt für die Authentifizierung
+          publish_dir: ./dist # Das Verzeichnis, das auf GitHub Pages veröffentlicht werden soll (dein Build-Output)
+          # publish_branch: gh-pages # Standardmäßig 'gh-pages'. Wenn du einen anderen Branch verwenden möchtest, aktiviere diese Zeile.
+          # cname: example.com # Wenn du eine benutzerdefinierte Domain hast, aktiviere und konfiguriere diese Zeile.
