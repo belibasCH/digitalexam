@@ -1,0 +1,266 @@
+import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
+import { supabase } from '../common/supabase';
+import { Answer, ExamSession, ExamSessionWithAnswers, ExamWithQuestions } from '../../types/database';
+
+interface JoinExamRequest {
+  exam_id: string;
+  student_name: string;
+  student_email: string;
+}
+
+interface SaveAnswerRequest {
+  session_id: string;
+  question_id: string;
+  content: unknown;
+}
+
+interface AwardPointsRequest {
+  answer_id: string;
+  points: number;
+}
+
+export const sessionsApi = createApi({
+  reducerPath: 'sessionsApi',
+  baseQuery: fakeBaseQuery(),
+  tagTypes: ['Sessions', 'Answers'],
+  endpoints: (build) => ({
+    getExamForStudent: build.query<ExamWithQuestions, string>({
+      queryFn: async (examId) => {
+        const { data: exam, error: examError } = await supabase
+          .from('exams')
+          .select('*')
+          .eq('id', examId)
+          .eq('status', 'active')
+          .single();
+
+        if (examError) {
+          return { error: { status: 404, data: { message: 'Prüfung nicht gefunden oder nicht aktiv' } } };
+        }
+
+        const { data: examQuestions, error: eqError } = await supabase
+          .from('exam_questions')
+          .select('question_id, order_index')
+          .eq('exam_id', examId)
+          .order('order_index');
+
+        if (eqError) {
+          return { error: { status: 500, data: { message: eqError.message } } };
+        }
+
+        if (!examQuestions || examQuestions.length === 0) {
+          return { data: { ...exam, questions: [] } };
+        }
+
+        const questionIds = examQuestions.map(eq => eq.question_id);
+        const { data: questions, error: qError } = await supabase
+          .from('questions')
+          .select('*')
+          .in('id', questionIds);
+
+        if (qError) {
+          return { error: { status: 500, data: { message: qError.message } } };
+        }
+
+        const questionsWithOrder = examQuestions.map(eq => {
+          const question = questions?.find(q => q.id === eq.question_id);
+          return {
+            ...question,
+            order_index: eq.order_index,
+          };
+        }).filter(q => q && q.id);
+
+        return { data: { ...exam, questions: questionsWithOrder as ExamWithQuestions['questions'] } };
+      },
+    }),
+
+    joinExam: build.mutation<ExamSession, JoinExamRequest>({
+      queryFn: async ({ exam_id, student_name, student_email }) => {
+        // Check if session already exists
+        const { data: existingSession } = await supabase
+          .from('exam_sessions')
+          .select('*')
+          .eq('exam_id', exam_id)
+          .eq('student_email', student_email)
+          .single();
+
+        if (existingSession) {
+          return { data: existingSession };
+        }
+
+        // Create new session
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .insert({
+            exam_id,
+            student_name,
+            student_email,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: [{ type: 'Sessions', id: 'LIST' }],
+    }),
+
+    getSession: build.query<ExamSession, string>({
+      queryFn: async (sessionId) => {
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      providesTags: (_, __, id) => [{ type: 'Sessions', id }],
+    }),
+
+    getSessionWithAnswers: build.query<ExamSessionWithAnswers, string>({
+      queryFn: async (sessionId) => {
+        const { data: session, error: sessionError } = await supabase
+          .from('exam_sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+
+        if (sessionError) {
+          return { error: { status: 500, data: { message: sessionError.message } } };
+        }
+
+        const { data: answers, error: answersError } = await supabase
+          .from('answers')
+          .select('*')
+          .eq('session_id', sessionId);
+
+        if (answersError) {
+          return { error: { status: 500, data: { message: answersError.message } } };
+        }
+
+        return { data: { ...session, answers: answers || [] } };
+      },
+      providesTags: (_, __, id) => [
+        { type: 'Sessions', id },
+        { type: 'Answers', id },
+      ],
+    }),
+
+    getExamSessions: build.query<ExamSession[], string>({
+      queryFn: async (examId) => {
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .select('*')
+          .eq('exam_id', examId)
+          .order('started_at', { ascending: false });
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data: data || [] };
+      },
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.map(({ id }) => ({ type: 'Sessions' as const, id })),
+              { type: 'Sessions', id: 'LIST' },
+            ]
+          : [{ type: 'Sessions', id: 'LIST' }],
+    }),
+
+    saveAnswer: build.mutation<Answer, SaveAnswerRequest>({
+      queryFn: async ({ session_id, question_id, content }) => {
+        const { data, error } = await supabase
+          .from('answers')
+          .upsert(
+            {
+              session_id,
+              question_id,
+              content,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'session_id,question_id' }
+          )
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: (_, __, { session_id }) => [
+        { type: 'Answers', id: session_id },
+      ],
+    }),
+
+    submitExam: build.mutation<ExamSession, string>({
+      queryFn: async (sessionId) => {
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .update({ submitted_at: new Date().toISOString() })
+          .eq('id', sessionId)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: (_, __, id) => [
+        { type: 'Sessions', id },
+        { type: 'Sessions', id: 'LIST' },
+      ],
+    }),
+
+    awardPoints: build.mutation<Answer, AwardPointsRequest>({
+      queryFn: async ({ answer_id, points }) => {
+        const { data, error } = await supabase
+          .from('answers')
+          .update({ points_awarded: points })
+          .eq('id', answer_id)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: ['Answers'],
+    }),
+
+    getAnswersForSession: build.query<Answer[], string>({
+      queryFn: async (sessionId) => {
+        const { data, error } = await supabase
+          .from('answers')
+          .select('*')
+          .eq('session_id', sessionId);
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data: data || [] };
+      },
+      providesTags: (_, __, sessionId) => [{ type: 'Answers', id: sessionId }],
+    }),
+  }),
+});
+
+export const {
+  useGetExamForStudentQuery,
+  useJoinExamMutation,
+  useGetSessionQuery,
+  useGetSessionWithAnswersQuery,
+  useGetExamSessionsQuery,
+  useSaveAnswerMutation,
+  useSubmitExamMutation,
+  useAwardPointsMutation,
+  useGetAnswersForSessionQuery,
+} = sessionsApi;

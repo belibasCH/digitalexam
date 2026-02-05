@@ -1,0 +1,537 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import {
+  Container,
+  Title,
+  Text,
+  Paper,
+  Button,
+  Stack,
+  Alert,
+  Skeleton,
+  Group,
+  Badge,
+  Textarea,
+  Radio,
+  Progress,
+  Modal,
+  FileButton,
+  ActionIcon,
+  Loader,
+} from '@mantine/core';
+import { IconAlertCircle, IconClock, IconCheck, IconUpload, IconFile, IconTrash, IconX } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import {
+  useGetExamForStudentQuery,
+  useGetSessionQuery,
+  useSaveAnswerMutation,
+  useSubmitExamMutation,
+  useGetAnswersForSessionQuery,
+} from '../../services/sessions/sessionsApi';
+import {
+  Question,
+  MultipleChoiceContent,
+  FreeTextContent,
+  FileUploadContent,
+  MultipleChoiceAnswer,
+  FreeTextAnswer,
+  FileUploadAnswer,
+  UploadedFile,
+} from '../../types/database';
+import { supabase } from '../../services/common/supabase';
+
+export const TakeExamPage = () => {
+  const { examId } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const sessionId = searchParams.get('session');
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  const { data: exam, isLoading: loadingExam } = useGetExamForStudentQuery(examId || '', {
+    skip: !examId,
+  });
+
+  const { data: session, isLoading: loadingSession } = useGetSessionQuery(sessionId || '', {
+    skip: !sessionId,
+  });
+
+  const { data: existingAnswers } = useGetAnswersForSessionQuery(sessionId || '', {
+    skip: !sessionId,
+  });
+
+  const [saveAnswer] = useSaveAnswerMutation();
+  const [submitExam, { isLoading: submitting }] = useSubmitExamMutation();
+
+  // Load existing answers
+  useEffect(() => {
+    if (existingAnswers) {
+      const loadedAnswers: Record<string, unknown> = {};
+      existingAnswers.forEach((answer) => {
+        loadedAnswers[answer.question_id] = answer.content;
+      });
+      setAnswers(loadedAnswers);
+    }
+  }, [existingAnswers]);
+
+  // Timer
+  useEffect(() => {
+    if (!exam?.time_limit_minutes || !session?.started_at) return;
+
+    const startTime = new Date(session.started_at).getTime();
+    const endTime = startTime + exam.time_limit_minutes * 60 * 1000;
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, endTime - now);
+      setTimeRemaining(remaining);
+
+      if (remaining === 0) {
+        handleSubmit();
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [exam?.time_limit_minutes, session?.started_at]);
+
+  const handleAnswerChange = useCallback(
+    async (questionId: string, content: unknown) => {
+      setAnswers((prev) => ({ ...prev, [questionId]: content }));
+
+      if (sessionId) {
+        try {
+          await saveAnswer({
+            session_id: sessionId,
+            question_id: questionId,
+            content,
+          }).unwrap();
+        } catch {
+          // Silent fail - will retry on next change
+        }
+      }
+    },
+    [sessionId, saveAnswer]
+  );
+
+  const handleSubmit = async () => {
+    if (!sessionId) return;
+
+    try {
+      await submitExam(sessionId).unwrap();
+      notifications.show({
+        title: 'Prüfung abgegeben',
+        message: 'Ihre Antworten wurden erfolgreich gespeichert.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+      navigate(`/take/${examId}/complete`);
+    } catch {
+      notifications.show({
+        title: 'Fehler',
+        message: 'Die Prüfung konnte nicht abgegeben werden.',
+        color: 'red',
+      });
+    }
+  };
+
+  if (loadingExam || loadingSession) {
+    return (
+      <Container size="md" py={50}>
+        <Skeleton height={400} radius="md" />
+      </Container>
+    );
+  }
+
+  if (!exam || !session) {
+    return (
+      <Container size="md" py={50}>
+        <Alert icon={<IconAlertCircle size={16} />} color="red">
+          Prüfung konnte nicht geladen werden.
+        </Alert>
+      </Container>
+    );
+  }
+
+  if (session.submitted_at) {
+    navigate(`/take/${examId}/complete`);
+    return null;
+  }
+
+  const currentQuestion = exam.questions[currentIndex];
+  const answeredCount = Object.keys(answers).length;
+  const progress = (answeredCount / exam.questions.length) * 100;
+
+  const formatTime = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const renderQuestion = () => {
+    switch (currentQuestion.type) {
+      case 'multiple_choice':
+        return (
+          <MultipleChoiceQuestion
+            question={currentQuestion}
+            answer={answers[currentQuestion.id] as MultipleChoiceAnswer | undefined}
+            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+          />
+        );
+      case 'free_text':
+        return (
+          <FreeTextQuestion
+            question={currentQuestion}
+            answer={answers[currentQuestion.id] as FreeTextAnswer | undefined}
+            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+          />
+        );
+      case 'file_upload':
+        return (
+          <FileUploadQuestion
+            question={currentQuestion}
+            answer={answers[currentQuestion.id] as FileUploadAnswer | undefined}
+            sessionId={sessionId || ''}
+            onChange={(content) => handleAnswerChange(currentQuestion.id, content)}
+          />
+        );
+      default:
+        return <Text c="dimmed">Unbekannter Aufgabentyp</Text>;
+    }
+  };
+
+  return (
+    <Container size="md" py={30}>
+      <Stack gap="lg">
+        <Paper p="md" radius="md" withBorder>
+          <Group justify="space-between">
+            <div>
+              <Title order={3}>{exam.title}</Title>
+              <Text size="sm" c="dimmed">
+                {session.student_name}
+              </Text>
+            </div>
+            <Group gap="md">
+              {timeRemaining !== null && (
+                <Badge
+                  size="lg"
+                  color={timeRemaining < 300000 ? 'red' : 'blue'}
+                  leftSection={<IconClock size={14} />}
+                >
+                  {formatTime(timeRemaining)}
+                </Badge>
+              )}
+              <Badge size="lg" variant="outline">
+                {answeredCount} / {exam.questions.length}
+              </Badge>
+            </Group>
+          </Group>
+          <Progress value={progress} size="sm" mt="md" />
+        </Paper>
+
+        <Paper p="lg" radius="md" withBorder>
+          <Group justify="space-between" mb="md">
+            <Badge>Frage {currentIndex + 1} von {exam.questions.length}</Badge>
+            <Badge variant="outline">{currentQuestion.points} Punkte</Badge>
+          </Group>
+
+          <Title order={4} mb="md">
+            {currentQuestion.title}
+          </Title>
+
+          <Text mb="lg">
+            {(currentQuestion.content as { question: string }).question}
+          </Text>
+
+          {renderQuestion()}
+        </Paper>
+
+        <Group justify="space-between">
+          <Button
+            variant="light"
+            onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+            disabled={currentIndex === 0}
+          >
+            Zurück
+          </Button>
+
+          <Group gap="sm">
+            {exam.questions.map((_, index) => (
+              <Button
+                key={index}
+                size="xs"
+                variant={index === currentIndex ? 'filled' : answers[exam.questions[index].id] ? 'light' : 'subtle'}
+                onClick={() => setCurrentIndex(index)}
+              >
+                {index + 1}
+              </Button>
+            ))}
+          </Group>
+
+          {currentIndex < exam.questions.length - 1 ? (
+            <Button onClick={() => setCurrentIndex((i) => i + 1)}>Weiter</Button>
+          ) : (
+            <Button color="green" onClick={() => setShowSubmitModal(true)}>
+              Abgeben
+            </Button>
+          )}
+        </Group>
+
+        <Modal
+          opened={showSubmitModal}
+          onClose={() => setShowSubmitModal(false)}
+          title="Prüfung abgeben"
+        >
+          <Stack gap="md">
+            <Text>
+              Sind Sie sicher, dass Sie die Prüfung abgeben möchten? Sie können Ihre Antworten
+              danach nicht mehr ändern.
+            </Text>
+            <Text size="sm" c="dimmed">
+              Sie haben {answeredCount} von {exam.questions.length} Fragen beantwortet.
+            </Text>
+            {answeredCount < exam.questions.length && (
+              <Alert icon={<IconAlertCircle size={16} />} color="orange">
+                Sie haben noch nicht alle Fragen beantwortet!
+              </Alert>
+            )}
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={() => setShowSubmitModal(false)}>
+                Abbrechen
+              </Button>
+              <Button color="green" onClick={handleSubmit} loading={submitting}>
+                Jetzt abgeben
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+      </Stack>
+    </Container>
+  );
+};
+
+const MultipleChoiceQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: MultipleChoiceAnswer | undefined;
+  onChange: (content: MultipleChoiceAnswer) => void;
+}) => {
+  const content = question.content as MultipleChoiceContent;
+
+  return (
+    <Radio.Group
+      value={answer?.selected_option_id || ''}
+      onChange={(value) => onChange({ selected_option_id: value })}
+    >
+      <Stack gap="sm">
+        {content.options.map((option) => (
+          <Paper key={option.id} p="sm" withBorder style={{ cursor: 'pointer' }}>
+            <Radio
+              value={option.id}
+              label={option.text}
+              styles={{ label: { cursor: 'pointer' } }}
+            />
+          </Paper>
+        ))}
+      </Stack>
+    </Radio.Group>
+  );
+};
+
+const FreeTextQuestion = ({
+  question,
+  answer,
+  onChange,
+}: {
+  question: Question;
+  answer: FreeTextAnswer | undefined;
+  onChange: (content: FreeTextAnswer) => void;
+}) => {
+  const content = question.content as FreeTextContent;
+  const minRows = content.expected_length === 'short' ? 2 : content.expected_length === 'long' ? 8 : 4;
+
+  return (
+    <Textarea
+      placeholder="Geben Sie hier Ihre Antwort ein..."
+      minRows={minRows}
+      value={answer?.text || ''}
+      onChange={(e) => onChange({ text: e.target.value })}
+    />
+  );
+};
+
+const FileUploadQuestion = ({
+  question,
+  answer,
+  sessionId,
+  onChange,
+}: {
+  question: Question;
+  answer: FileUploadAnswer | undefined;
+  sessionId: string;
+  onChange: (content: FileUploadAnswer) => void;
+}) => {
+  const content = question.content as FileUploadContent;
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const files = answer?.files || [];
+  const maxFiles = content.max_files || 1;
+  const maxSizeMB = content.max_file_size_mb || 10;
+  const allowedTypes = content.allowed_types || [];
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleFileSelect = async (selectedFile: File | null) => {
+    if (!selectedFile) return;
+    setError(null);
+
+    // Check file count
+    if (files.length >= maxFiles) {
+      setError(`Maximal ${maxFiles} Datei(en) erlaubt.`);
+      return;
+    }
+
+    // Check file size
+    if (selectedFile.size > maxSizeMB * 1024 * 1024) {
+      setError(`Datei zu groß. Maximal ${maxSizeMB} MB erlaubt.`);
+      return;
+    }
+
+    // Check file type
+    const extension = selectedFile.name.split('.').pop()?.toLowerCase();
+    if (allowedTypes.length > 0 && extension && !allowedTypes.includes(extension)) {
+      setError(`Dateityp nicht erlaubt. Erlaubt: ${allowedTypes.join(', ')}`);
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const filePath = `${sessionId}/${question.id}/${Date.now()}_${selectedFile.name}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('exam-uploads')
+        .upload(filePath, selectedFile);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const newFile: UploadedFile = {
+        name: selectedFile.name,
+        path: filePath,
+        size: selectedFile.size,
+        type: selectedFile.type,
+        uploaded_at: new Date().toISOString(),
+      };
+
+      onChange({
+        files: [...files, newFile],
+      });
+
+      notifications.show({
+        title: 'Datei hochgeladen',
+        message: `${selectedFile.name} wurde erfolgreich hochgeladen.`,
+        color: 'green',
+      });
+    } catch (err) {
+      console.error('Upload error:', err);
+      setError('Fehler beim Hochladen der Datei.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveFile = async (fileToRemove: UploadedFile) => {
+    try {
+      await supabase.storage.from('exam-uploads').remove([fileToRemove.path]);
+
+      onChange({
+        files: files.filter((f) => f.path !== fileToRemove.path),
+      });
+
+      notifications.show({
+        title: 'Datei entfernt',
+        message: `${fileToRemove.name} wurde entfernt.`,
+        color: 'blue',
+      });
+    } catch (err) {
+      console.error('Delete error:', err);
+      notifications.show({
+        title: 'Fehler',
+        message: 'Datei konnte nicht entfernt werden.',
+        color: 'red',
+      });
+    }
+  };
+
+  return (
+    <Stack gap="md">
+      {error && (
+        <Alert icon={<IconX size={16} />} color="red" onClose={() => setError(null)} withCloseButton>
+          {error}
+        </Alert>
+      )}
+
+      <Paper p="md" bg="gray.0" radius="md">
+        <Group justify="space-between" mb="sm">
+          <Text size="sm" c="dimmed">
+            Erlaubte Dateitypen: {allowedTypes.join(', ') || 'Alle'}
+          </Text>
+          <Text size="sm" c="dimmed">
+            Max. {maxSizeMB} MB | {files.length}/{maxFiles} Dateien
+          </Text>
+        </Group>
+
+        <FileButton onChange={handleFileSelect} accept={allowedTypes.map(t => `.${t}`).join(',')}>
+          {(props) => (
+            <Button
+              {...props}
+              variant="light"
+              leftSection={uploading ? <Loader size={16} /> : <IconUpload size={16} />}
+              disabled={uploading || files.length >= maxFiles}
+              fullWidth
+            >
+              {uploading ? 'Wird hochgeladen...' : 'Datei auswählen'}
+            </Button>
+          )}
+        </FileButton>
+      </Paper>
+
+      {files.length > 0 && (
+        <Stack gap="xs">
+          <Text size="sm" fw={500}>Hochgeladene Dateien:</Text>
+          {files.map((file) => (
+            <Paper key={file.path} p="sm" withBorder>
+              <Group justify="space-between">
+                <Group gap="sm">
+                  <IconFile size={20} />
+                  <div>
+                    <Text size="sm" fw={500}>{file.name}</Text>
+                    <Text size="xs" c="dimmed">{formatFileSize(file.size)}</Text>
+                  </div>
+                </Group>
+                <ActionIcon variant="subtle" color="red" onClick={() => handleRemoveFile(file)}>
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Group>
+            </Paper>
+          ))}
+        </Stack>
+      )}
+    </Stack>
+  );
+};
