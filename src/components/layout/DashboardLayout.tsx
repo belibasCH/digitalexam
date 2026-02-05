@@ -111,6 +111,10 @@ export const DashboardLayout = () => {
             />
           ))}
         </Stack>
+        {/* Add version information here */}
+        <Text size="xs" c="dimmed" style={{ marginTop: 'auto', paddingBottom: '10px' }}>
+          Version: {import.meta.env.VITE_APP_VERSION}
+        </Text>
       </AppShell.Navbar>
 
       <AppShell.Main>
