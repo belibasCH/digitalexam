@@ -24,7 +24,7 @@ import {
   Select,
   SimpleGrid,
 } from '@mantine/core';
-import { IconAlertCircle, IconClock, IconCheck, IconUpload, IconFile, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAlertCircle, IconClock, IconCheck, IconUpload, IconFile, IconTrash, IconX, IconLock } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import {
   useGetExamForStudentQuery,
@@ -32,6 +32,7 @@ import {
   useSaveAnswerMutation,
   useSubmitExamMutation,
   useGetAnswersForSessionQuery,
+  useLockSessionMutation,
 } from '../../services/sessions/sessionsApi';
 import {
   Question,
@@ -79,6 +80,8 @@ export const TakeExamPage = () => {
 
   const [saveAnswer] = useSaveAnswerMutation();
   const [submitExam, { isLoading: submitting }] = useSubmitExamMutation();
+  const [lockSession] = useLockSessionMutation();
+  const [isLocked, setIsLocked] = useState(false);
 
   // Determine if exam uses sections
   const hasSections = exam?.sections && exam.sections.length > 0;
@@ -126,6 +129,55 @@ export const TakeExamPage = () => {
 
     return () => clearInterval(interval);
   }, [exam?.time_limit_minutes, session?.started_at]);
+
+  // Tab-leave detection
+  useEffect(() => {
+    if (!exam?.lock_on_tab_leave || !sessionId) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setIsLocked(true);
+        lockSession(sessionId);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [exam?.lock_on_tab_leave, sessionId, lockSession]);
+
+  // Realtime subscription for unlock
+  useEffect(() => {
+    if (!exam?.lock_on_tab_leave || !sessionId) return;
+
+    const channel = supabase
+      .channel(`session_lock_${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'exam_sessions',
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          if (payload.new && (payload.new as { is_locked: boolean }).is_locked === false) {
+            setIsLocked(false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [exam?.lock_on_tab_leave, sessionId]);
+
+  // Initialize lock state from session
+  useEffect(() => {
+    if (session?.is_locked) {
+      setIsLocked(true);
+    }
+  }, [session?.is_locked]);
 
   const handleAnswerChange = useCallback(
     async (questionId: string, content: unknown) => {
@@ -274,6 +326,26 @@ export const TakeExamPage = () => {
 
   return (
     <Container size="lg" py={30}>
+      {isLocked && (
+        <Modal
+          opened={isLocked}
+          onClose={() => {}}
+          withCloseButton={false}
+          closeOnClickOutside={false}
+          closeOnEscape={false}
+          centered
+          size="md"
+        >
+          <Stack gap="md" align="center" py="xl">
+            <IconLock size={48} color="var(--mantine-color-red-6)" />
+            <Title order={3} ta="center">Prüfung gesperrt</Title>
+            <Text ta="center" c="dimmed">
+              Sie haben den Prüfungs-Tab verlassen. Bitte warten Sie, bis Ihre Lehrperson die Prüfung wieder freigibt.
+            </Text>
+            <Loader size="sm" />
+          </Stack>
+        </Modal>
+      )}
       <Stack gap="lg">
         <Paper p="md" radius="md" withBorder>
           <Group justify="space-between">

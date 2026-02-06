@@ -283,6 +283,55 @@ export const sessionsApi = createApi({
       },
       providesTags: (_, __, sessionId) => [{ type: 'Answers', id: sessionId }],
     }),
+
+    lockSession: build.mutation<ExamSession, string>({
+      queryFn: async (sessionId) => {
+        // Increment tab_leave_count and set is_locked
+        const { data: current } = await supabase
+          .from('exam_sessions')
+          .select('tab_leave_count')
+          .eq('id', sessionId)
+          .single();
+
+        const newCount = (current?.tab_leave_count || 0) + 1;
+
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .update({ is_locked: true, tab_leave_count: newCount })
+          .eq('id', sessionId)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: (_, __, id) => [
+        { type: 'Sessions', id },
+        { type: 'Sessions', id: 'LIST' },
+      ],
+    }),
+
+    unlockSession: build.mutation<ExamSession, string>({
+      queryFn: async (sessionId) => {
+        const { data, error } = await supabase
+          .from('exam_sessions')
+          .update({ is_locked: false })
+          .eq('id', sessionId)
+          .select()
+          .single();
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data };
+      },
+      invalidatesTags: (_, __, id) => [
+        { type: 'Sessions', id },
+        { type: 'Sessions', id: 'LIST' },
+      ],
+    }),
   }),
 });
 
@@ -296,4 +345,6 @@ export const {
   useSubmitExamMutation,
   useAwardPointsMutation,
   useGetAnswersForSessionQuery,
+  useLockSessionMutation,
+  useUnlockSessionMutation,
 } = sessionsApi;

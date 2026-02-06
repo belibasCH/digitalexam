@@ -7,6 +7,13 @@ interface CreateExamRequest {
   title: string;
   description?: string;
   time_limit_minutes?: number;
+  lock_on_tab_leave?: boolean;
+}
+
+interface SendExamInvitationsRequest {
+  exam_id: string;
+  emails: string[];
+  exam_title: string;
 }
 
 interface UpdateExamRequest {
@@ -363,6 +370,102 @@ export const examsApi = createApi({
       ],
     }),
 
+    duplicateExam: build.mutation<Exam, string>({
+      queryFn: async (examId) => {
+        // Load original exam
+        const { data: original, error: examError } = await supabase
+          .from('exams')
+          .select('*')
+          .eq('id', examId)
+          .single();
+
+        if (examError || !original) {
+          return { error: { status: 500, data: { message: examError?.message || 'Prüfung nicht gefunden' } } };
+        }
+
+        // Create new exam as draft
+        const { data: newExam, error: createError } = await supabase
+          .from('exams')
+          .insert({
+            teacher_id: original.teacher_id,
+            title: original.title + ' (Kopie)',
+            description: original.description,
+            time_limit_minutes: original.time_limit_minutes,
+            lock_on_tab_leave: original.lock_on_tab_leave,
+          })
+          .select()
+          .single();
+
+        if (createError || !newExam) {
+          return { error: { status: 500, data: { message: createError?.message || 'Fehler beim Erstellen' } } };
+        }
+
+        // Load sections
+        const { data: sections } = await supabase
+          .from('exam_sections')
+          .select('*')
+          .eq('exam_id', examId)
+          .order('order_index');
+
+        // Load exam_questions
+        const { data: examQuestions } = await supabase
+          .from('exam_questions')
+          .select('*')
+          .eq('exam_id', examId)
+          .order('order_index');
+
+        // Copy sections with ID mapping
+        const sectionIdMap: Record<string, string> = {};
+
+        if (sections && sections.length > 0) {
+          for (const section of sections) {
+            const { data: newSection } = await supabase
+              .from('exam_sections')
+              .insert({
+                exam_id: newExam.id,
+                title: section.title,
+                description: section.description,
+                order_index: section.order_index,
+              })
+              .select()
+              .single();
+
+            if (newSection) {
+              sectionIdMap[section.id] = newSection.id;
+            }
+          }
+        }
+
+        // Copy exam_questions with mapped section IDs
+        if (examQuestions && examQuestions.length > 0) {
+          const newExamQuestions = examQuestions.map((eq: ExamQuestion) => ({
+            exam_id: newExam.id,
+            question_id: eq.question_id,
+            section_id: eq.section_id ? sectionIdMap[eq.section_id] : null,
+            order_index: eq.order_index,
+          }));
+
+          await supabase.from('exam_questions').insert(newExamQuestions);
+        }
+
+        return { data: newExam };
+      },
+      invalidatesTags: [{ type: 'Exams', id: 'LIST' }],
+    }),
+
+    sendExamInvitations: build.mutation<{ sent: string[]; failed: string[] }, SendExamInvitationsRequest>({
+      queryFn: async ({ exam_id, emails, exam_title }) => {
+        const { data, error } = await supabase.functions.invoke('send-exam-invitation', {
+          body: { exam_id, emails, exam_title },
+        });
+
+        if (error) {
+          return { error: { status: 500, data: { message: error.message } } };
+        }
+        return { data: data as { sent: string[]; failed: string[] } };
+      },
+    }),
+
     saveSectionsWithQuestions: build.mutation<void, SaveSectionsWithQuestionsRequest>({
       queryFn: async ({ exam_id, sections }) => {
         // Delete existing sections (cascade will delete exam_questions with section_id)
@@ -446,4 +549,6 @@ export const {
   useUpdateSectionMutation,
   useDeleteSectionMutation,
   useSaveSectionsWithQuestionsMutation,
+  useDuplicateExamMutation,
+  useSendExamInvitationsMutation,
 } = examsApi;

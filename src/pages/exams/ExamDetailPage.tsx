@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -30,6 +31,7 @@ import {
   useCloseExamMutation,
 } from '../../services/exams/examsApi';
 import { notifications } from '@mantine/notifications';
+import { SendInvitationsModal } from '../../components/exams/SendInvitationsModal';
 
 export const ExamDetailPage = () => {
   const { id } = useParams();
@@ -39,12 +41,17 @@ export const ExamDetailPage = () => {
     skip: !id,
   });
 
-  const [activateExam, { isLoading: activating }] = useActivateExamMutation();
+  const [activateExam] = useActivateExamMutation();
   const [closeExam, { isLoading: closing }] = useCloseExamMutation();
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
 
   const examLink = `${window.location.origin}/take/${id}`;
 
-  const handleActivate = async () => {
+  const handleActivate = () => {
+    setShowInvitationModal(true);
+  };
+
+  const doActivate = async () => {
     if (!id) return;
     try {
       await activateExam(id).unwrap();
@@ -59,6 +66,7 @@ export const ExamDetailPage = () => {
         message: 'Die Prüfung konnte nicht aktiviert werden.',
         color: 'red',
       });
+      throw new Error('Activation failed');
     }
   };
 
@@ -138,7 +146,6 @@ export const ExamDetailPage = () => {
                 <Button
                   leftSection={<IconPlayerPlay size={16} />}
                   onClick={handleActivate}
-                  loading={activating}
                 >
                   Aktivieren
                 </Button>
@@ -352,6 +359,16 @@ export const ExamDetailPage = () => {
           )}
         </Paper>
       </Stack>
+
+      {exam.status === 'draft' && id && (
+        <SendInvitationsModal
+          opened={showInvitationModal}
+          onClose={() => setShowInvitationModal(false)}
+          examId={id}
+          examTitle={exam.title}
+          onActivate={doActivate}
+        />
+      )}
     </Container>
   );
 };

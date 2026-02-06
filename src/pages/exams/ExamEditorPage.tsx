@@ -46,6 +46,7 @@ interface FormValues {
   description: string;
   time_limit_minutes: number | undefined;
   has_time_limit: boolean;
+  lock_on_tab_leave: boolean;
 }
 
 interface SectionData {
@@ -87,6 +88,7 @@ export const ExamEditorPage = () => {
       description: '',
       time_limit_minutes: undefined,
       has_time_limit: false,
+      lock_on_tab_leave: false,
     },
     validate: {
       title: (value) => (value.length > 0 ? null : 'Titel ist erforderlich'),
@@ -100,6 +102,7 @@ export const ExamEditorPage = () => {
         description: existingExam.description || '',
         time_limit_minutes: existingExam.time_limit_minutes || undefined,
         has_time_limit: !!existingExam.time_limit_minutes,
+        lock_on_tab_leave: !!existingExam.lock_on_tab_leave,
       });
 
       // Load sections
@@ -150,6 +153,7 @@ export const ExamEditorPage = () => {
             title: values.title,
             description: values.description || undefined,
             time_limit_minutes: values.has_time_limit ? values.time_limit_minutes : undefined,
+            lock_on_tab_leave: values.lock_on_tab_leave,
           },
         }).unwrap();
       } else {
@@ -158,6 +162,7 @@ export const ExamEditorPage = () => {
           title: values.title,
           description: values.description || undefined,
           time_limit_minutes: values.has_time_limit ? values.time_limit_minutes : undefined,
+          lock_on_tab_leave: values.lock_on_tab_leave,
         }).unwrap();
         examId = newExam.id;
       }
@@ -417,6 +422,12 @@ export const ExamEditorPage = () => {
                     />
                   )}
                 </Group>
+                <Checkbox
+                  label="Tab-Verlassen sperren"
+                  description="Sperrt die Prüfung automatisch, wenn ein Schüler den Tab verlässt"
+                  checked={form.values.lock_on_tab_leave}
+                  onChange={(e) => form.setFieldValue('lock_on_tab_leave', e.currentTarget.checked)}
+                />
               </Stack>
             </Paper>
 

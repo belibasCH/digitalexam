@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Container,
@@ -30,9 +31,11 @@ import {
   useDeleteExamMutation,
   useActivateExamMutation,
   useCloseExamMutation,
+  useDuplicateExamMutation,
 } from '../../services/exams/examsApi';
 import { Exam } from '../../types/database';
 import { notifications } from '@mantine/notifications';
+import { SendInvitationsModal } from '../../components/exams/SendInvitationsModal';
 
 const getStatusLabel = (status: Exam['status']) => {
   switch (status) {
@@ -68,6 +71,8 @@ export const ExamsListPage = () => {
   const [deleteExam] = useDeleteExamMutation();
   const [activateExam] = useActivateExamMutation();
   const [closeExam] = useCloseExamMutation();
+  const [duplicateExam] = useDuplicateExamMutation();
+  const [invitationExam, setInvitationExam] = useState<Exam | null>(null);
 
   const handleDelete = async (id: string, title: string) => {
     if (!window.confirm(`Möchten Sie die Prüfung "${title}" wirklich löschen?`)) {
@@ -90,9 +95,14 @@ export const ExamsListPage = () => {
     }
   };
 
-  const handleActivate = async (id: string) => {
+  const handleActivate = (exam: Exam) => {
+    setInvitationExam(exam);
+  };
+
+  const doActivate = async () => {
+    if (!invitationExam) return;
     try {
-      await activateExam(id).unwrap();
+      await activateExam(invitationExam.id).unwrap();
       notifications.show({
         title: 'Prüfung aktiviert',
         message: 'Die Prüfung ist jetzt für Schüler zugänglich.',
@@ -104,6 +114,7 @@ export const ExamsListPage = () => {
         message: 'Die Prüfung konnte nicht aktiviert werden.',
         color: 'red',
       });
+      throw new Error('Activation failed');
     }
   };
 
@@ -123,6 +134,23 @@ export const ExamsListPage = () => {
       notifications.show({
         title: 'Fehler',
         message: 'Die Prüfung konnte nicht beendet werden.',
+        color: 'red',
+      });
+    }
+  };
+
+  const handleDuplicate = async (id: string) => {
+    try {
+      await duplicateExam(id).unwrap();
+      notifications.show({
+        title: 'Prüfung dupliziert',
+        message: 'Eine Kopie der Prüfung wurde als Entwurf erstellt.',
+        color: 'green',
+      });
+    } catch {
+      notifications.show({
+        title: 'Fehler',
+        message: 'Die Prüfung konnte nicht dupliziert werden.',
         color: 'red',
       });
     }
@@ -238,7 +266,7 @@ export const ExamsListPage = () => {
                             </Menu.Item>
                             <Menu.Item
                               leftSection={<IconPlayerPlay size={14} />}
-                              onClick={() => handleActivate(exam.id)}
+                              onClick={() => handleActivate(exam)}
                             >
                               Aktivieren
                             </Menu.Item>
@@ -271,6 +299,12 @@ export const ExamsListPage = () => {
                             Auswerten
                           </Menu.Item>
                         )}
+                        <Menu.Item
+                          leftSection={<IconCopy size={14} />}
+                          onClick={() => handleDuplicate(exam.id)}
+                        >
+                          Duplizieren
+                        </Menu.Item>
                         <Menu.Divider />
                         <Menu.Item
                           color="red"
@@ -288,6 +322,16 @@ export const ExamsListPage = () => {
           </Stack>
         )}
       </Stack>
+
+      {invitationExam && (
+        <SendInvitationsModal
+          opened={!!invitationExam}
+          onClose={() => setInvitationExam(null)}
+          examId={invitationExam.id}
+          examTitle={invitationExam.title}
+          onActivate={doActivate}
+        />
+      )}
     </Container>
   );
 };

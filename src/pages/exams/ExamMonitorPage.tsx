@@ -22,9 +22,11 @@ import {
   IconAlertCircle,
   IconCheck,
   IconClock,
+  IconLock,
+  IconLockOpen,
 } from '@tabler/icons-react';
 import { useGetExamWithQuestionsQuery } from '../../services/exams/examsApi';
-import { useGetExamSessionsQuery, useGetAnswersForSessionQuery } from '../../services/sessions/sessionsApi';
+import { useGetExamSessionsQuery, useGetAnswersForSessionQuery, useUnlockSessionMutation } from '../../services/sessions/sessionsApi';
 import { supabase } from '../../services/common/supabase';
 import { ExamSession } from '../../types/database';
 
@@ -97,9 +99,13 @@ export const ExamMonitorPage = () => {
     );
   }
 
-  const totalQuestions = exam.questions.length;
+  const allExamQuestions = exam.sections && exam.sections.length > 0
+    ? exam.sections.flatMap(s => s.questions)
+    : exam.questions;
+  const totalQuestions = allExamQuestions.length;
   const submittedCount = sessions?.filter(s => s.submitted_at).length || 0;
   const activeCount = sessions?.filter(s => !s.submitted_at).length || 0;
+  const lockedCount = sessions?.filter(s => s.is_locked && !s.submitted_at).length || 0;
 
   return (
     <Container size="lg">
@@ -147,6 +153,16 @@ export const ExamMonitorPage = () => {
               {submittedCount}
             </Text>
           </Paper>
+          {exam.lock_on_tab_leave && (
+            <Paper p="md" radius="md" withBorder>
+              <Text size="sm" c="dimmed">
+                Gesperrt
+              </Text>
+              <Text size="xl" fw={700} c="red">
+                {lockedCount}
+              </Text>
+            </Paper>
+          )}
         </Group>
 
         <Paper p="lg" radius="md" withBorder>
@@ -166,6 +182,12 @@ export const ExamMonitorPage = () => {
                   <Table.Th>Gestartet</Table.Th>
                   <Table.Th>Status</Table.Th>
                   <Table.Th>Fortschritt</Table.Th>
+                  {exam.lock_on_tab_leave && (
+                    <>
+                      <Table.Th>Tab-Verlassen</Table.Th>
+                      <Table.Th>Aktionen</Table.Th>
+                    </>
+                  )}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -174,6 +196,7 @@ export const ExamMonitorPage = () => {
                     key={session.id}
                     session={session}
                     totalQuestions={totalQuestions}
+                    showLockControls={!!exam.lock_on_tab_leave}
                   />
                 ))}
               </Table.Tbody>
@@ -188,11 +211,14 @@ export const ExamMonitorPage = () => {
 const SessionRow = ({
   session,
   totalQuestions,
+  showLockControls,
 }: {
   session: ExamSession;
   totalQuestions: number;
+  showLockControls: boolean;
 }) => {
   const { data: answers } = useGetAnswersForSessionQuery(session.id);
+  const [unlockSession, { isLoading: unlocking }] = useUnlockSessionMutation();
 
   const answeredCount = answers?.length || 0;
   const progress = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
@@ -211,6 +237,10 @@ const SessionRow = ({
         {session.submitted_at ? (
           <Badge color="green" leftSection={<IconCheck size={12} />}>
             Abgegeben
+          </Badge>
+        ) : session.is_locked ? (
+          <Badge color="red" leftSection={<IconLock size={12} />}>
+            Gesperrt
           </Badge>
         ) : (
           <Badge color="orange" leftSection={<IconClock size={12} />}>
@@ -231,6 +261,29 @@ const SessionRow = ({
           </Text>
         </Group>
       </Table.Td>
+      {showLockControls && (
+        <>
+          <Table.Td>
+            <Badge variant="light" color={session.tab_leave_count ? 'orange' : 'gray'}>
+              {session.tab_leave_count || 0}
+            </Badge>
+          </Table.Td>
+          <Table.Td>
+            {session.is_locked && !session.submitted_at && (
+              <Tooltip label="Entsperren">
+                <ActionIcon
+                  variant="light"
+                  color="green"
+                  onClick={() => unlockSession(session.id)}
+                  loading={unlocking}
+                >
+                  <IconLockOpen size={16} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Table.Td>
+        </>
+      )}
     </Table.Tr>
   );
 };

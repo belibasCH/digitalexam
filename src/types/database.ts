@@ -135,6 +135,7 @@ export interface Exam {
   description?: string;
   status: 'draft' | 'active' | 'closed';
   time_limit_minutes?: number;
+  lock_on_tab_leave?: boolean;
   created_at: string;
 }
 
@@ -161,6 +162,8 @@ export interface ExamSession {
   student_email: string;
   started_at: string;
   submitted_at?: string;
+  is_locked?: boolean;
+  tab_leave_count?: number;
 }
 
 export type AnswerContent =

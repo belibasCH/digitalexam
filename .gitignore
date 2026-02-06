@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# MCP configuration (contains access tokens)
+.mcp.json
+
 # Logs
 logs
 *.log
