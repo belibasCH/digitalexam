@@ -21,41 +21,110 @@ import { JoinExamPage } from './pages/take/JoinExamPage';
 import { TakeExamPage } from './pages/take/TakeExamPage';
 import { ExamCompletePage } from './pages/take/ExamCompletePage';
 
-import { useLazyGetSessionQuery } from './services/auth/authApi';
 import { useAppDispatch } from './app/hooks';
 import { authActions, useAuthInitialized } from './services/auth/authSlice';
 import { supabase } from './services/common/supabase';
+import { Profile } from './types/database';
+
+// Helper function to get or create profile
+async function getOrCreateProfile(userId: string, fallbackName: string): Promise<Profile> {
+  const fallbackProfile = { id: userId, name: fallbackName, created_at: new Date().toISOString() };
+
+  try {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error) {
+      return fallbackProfile;
+    }
+
+    if (profile) {
+      return profile;
+    }
+
+    // Try to create profile
+    const { data: newProfile, error: insertError } = await supabase
+      .from('profiles')
+      .insert({ id: userId, name: fallbackName })
+      .select()
+      .single();
+
+    if (insertError) {
+      return fallbackProfile;
+    }
+
+    return newProfile || fallbackProfile;
+  } catch {
+    return fallbackProfile;
+  }
+}
 
 const App = () => {
   const dispatch = useAppDispatch();
   const initialized = useAuthInitialized();
-  const [getSession] = useLazyGetSessionQuery();
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const result = await getSession().unwrap();
-        dispatch(authActions.setUser(result.user || undefined));
-      } catch {
-        dispatch(authActions.setUser(undefined));
+    let isInitialized = false;
+
+    // Fallback: manually check session after 2 seconds if onAuthStateChange hasn't fired
+    const fallbackTimeout = setTimeout(async () => {
+      if (!isInitialized) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            const profile = await getOrCreateProfile(
+              session.user.id,
+              session.user.user_metadata?.name || session.user.email || 'User'
+            );
+            dispatch(authActions.setUser(profile));
+          } else {
+            dispatch(authActions.setUser(undefined));
+          }
+        } catch {
+          dispatch(authActions.setUser(undefined));
+        }
+        isInitialized = true;
       }
-    };
+    }, 2000);
 
-    initAuth();
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Cancel fallback if auth state change fires
+      if (!isInitialized) {
+        clearTimeout(fallbackTimeout);
+        isInitialized = true;
+      }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === 'SIGNED_IN') {
-        const result = await getSession().unwrap();
-        dispatch(authActions.setUser(result.user || undefined));
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session?.user) {
+          // Use session data immediately for fast load
+          const quickProfile: Profile = {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+            created_at: session.user.created_at,
+          };
+          dispatch(authActions.setUser(quickProfile));
+
+          // Fetch real profile in background (non-blocking)
+          getOrCreateProfile(session.user.id, quickProfile.name).then(profile => {
+            dispatch(authActions.setUser(profile));
+          });
+        } else {
+          dispatch(authActions.setUser(undefined));
+        }
       } else if (event === 'SIGNED_OUT') {
         dispatch(authActions.setUser(undefined));
       }
     });
 
     return () => {
+      clearTimeout(fallbackTimeout);
       subscription.unsubscribe();
     };
-  }, [dispatch, getSession]);
+  }, [dispatch]);
 
   if (!initialized) {
     return (

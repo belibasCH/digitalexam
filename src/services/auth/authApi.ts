@@ -18,25 +18,43 @@ interface AuthResponse {
 }
 
 async function getOrCreateProfile(userId: string, fallbackName: string): Promise<Profile | null> {
-  // Try to get existing profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .maybeSingle();
+  try {
+    // Try to get existing profile
+    const { data: profile, error: selectError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
-  if (profile) {
-    return profile;
+    if (selectError) {
+      console.error('Error fetching profile:', selectError);
+      // Return a fallback profile to keep the user logged in
+      return { id: userId, name: fallbackName, created_at: new Date().toISOString() };
+    }
+
+    if (profile) {
+      return profile;
+    }
+
+    // Profile doesn't exist, create one
+    const { data: newProfile, error: insertError } = await supabase
+      .from('profiles')
+      .insert({ id: userId, name: fallbackName })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Error creating profile:', insertError);
+      // Return a fallback profile to keep the user logged in
+      return { id: userId, name: fallbackName, created_at: new Date().toISOString() };
+    }
+
+    return newProfile;
+  } catch (error) {
+    console.error('Unexpected error in getOrCreateProfile:', error);
+    // Return a fallback profile to keep the user logged in
+    return { id: userId, name: fallbackName, created_at: new Date().toISOString() };
   }
-
-  // Profile doesn't exist, create one
-  const { data: newProfile } = await supabase
-    .from('profiles')
-    .insert({ id: userId, name: fallbackName })
-    .select()
-    .single();
-
-  return newProfile;
 }
 
 export const authApi = createApi({
@@ -106,17 +124,27 @@ export const authApi = createApi({
 
     getSession: build.query<AuthResponse, void>({
       queryFn: async () => {
-        const { data: { session } } = await supabase.auth.getSession();
+        try {
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-        if (session?.user) {
-          const profile = await getOrCreateProfile(
-            session.user.id,
-            session.user.user_metadata?.name || session.user.email || 'User'
-          );
-          return { data: { user: profile } };
+          if (sessionError) {
+            console.error('Error getting session:', sessionError);
+            return { data: { user: null } };
+          }
+
+          if (session?.user) {
+            const profile = await getOrCreateProfile(
+              session.user.id,
+              session.user.user_metadata?.name || session.user.email || 'User'
+            );
+            return { data: { user: profile } };
+          }
+
+          return { data: { user: null } };
+        } catch (error) {
+          console.error('Unexpected error in getSession:', error);
+          return { data: { user: null } };
         }
-
-        return { data: { user: null } };
       },
       providesTags: ['Auth'],
     }),

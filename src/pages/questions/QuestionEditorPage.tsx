@@ -59,7 +59,7 @@ interface FormValues {
   // Multiple choice
   options: MultipleChoiceOption[];
   // Free text
-  expected_length: 'short' | 'medium' | 'long';
+  expected_length: 'word' | 'short' | 'medium' | 'long';
   sample_answer: string;
   // File upload
   allowed_types: string[];
@@ -604,6 +604,7 @@ export const QuestionEditorPage = () => {
                     <Select
                       label="Erwartete Antwortlänge"
                       data={[
+                        { value: 'word', label: '1 Wort' },
                         { value: 'short', label: 'Kurz (1-2 Sätze)' },
                         { value: 'medium', label: 'Mittel (1 Absatz)' },
                         { value: 'long', label: 'Lang (mehrere Absätze)' },

@@ -72,7 +72,7 @@ export interface MultipleChoiceOption {
 
 export interface FreeTextContent {
   question: string;
-  expected_length?: 'short' | 'medium' | 'long';
+  expected_length?: 'word' | 'short' | 'medium' | 'long';
   sample_answer?: string;
 }
 

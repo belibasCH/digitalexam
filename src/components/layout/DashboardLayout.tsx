@@ -11,7 +11,7 @@ import {
   Menu,
   Avatar,
   UnstyledButton,
-  Stack,
+  Stack, Image,
 } from '@mantine/core';
 import {
   IconHome,
@@ -26,6 +26,7 @@ import {
 import { useAuth, authActions } from '../../services/auth/authSlice';
 import { useLogoutMutation } from '../../services/auth/authApi';
 import { useAppDispatch } from '../../app/hooks';
+import logo from '/src/assets/DigitalExam_Logo.png';
 
 const navItems = [
   { icon: IconHome, label: 'Dashboard', path: '/dashboard' },
@@ -64,9 +65,12 @@ export const DashboardLayout = () => {
               hiddenFrom="sm"
               size="sm"
             />
-            <Title order={3} c="blue">
-              DigitalExam
-            </Title>
+            <Image
+                src={logo}
+                alt="Logo"
+                height={40}
+                fit="contain"
+            />
           </Group>
 
           <Menu shadow="md" width={200}>

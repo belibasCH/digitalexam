@@ -169,7 +169,7 @@ export const TakeExamPage = () => {
 
   if (loadingExam || loadingSession) {
     return (
-      <Container size="md" py={50}>
+      <Container size="lg" py={50}>
         <Skeleton height={400} radius="md" />
       </Container>
     );
@@ -177,7 +177,7 @@ export const TakeExamPage = () => {
 
   if (!exam || !session) {
     return (
-      <Container size="md" py={50}>
+      <Container size="lg" py={50}>
         <Alert icon={<IconAlertCircle size={16} />} color="red">
           Prüfung konnte nicht geladen werden.
         </Alert>
@@ -273,7 +273,7 @@ export const TakeExamPage = () => {
   };
 
   return (
-    <Container size="md" py={30}>
+    <Container size="lg" py={30}>
       <Stack gap="lg">
         <Paper p="md" radius="md" withBorder>
           <Group justify="space-between">
@@ -474,7 +474,7 @@ const FreeTextQuestion = ({
   onChange: (content: FreeTextAnswer) => void;
 }) => {
   const content = question.content as FreeTextContent;
-  const minRows = content.expected_length === 'short' ? 2 : content.expected_length === 'long' ? 8 : 4;
+  const minRows = content.expected_length === 'word' ? 1 : content.expected_length === 'short' ? 2 : content.expected_length === 'long' ? 8 : 4;
 
   return (
     <Textarea
